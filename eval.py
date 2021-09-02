@@ -132,7 +132,7 @@ coco_cats = {} # Call prep_coco_cats to fill this
 coco_cats_inv = {}
 color_cache = defaultdict(lambda: {})
 
-def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, mask_alpha=0.45, fps_str='', maskiou_net=None):
+def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, mask_alpha=0.45, fps_str=''):
     """
     Note: If undo_transform=False then im_h and im_w are allowed to be None.
     """
@@ -144,36 +144,20 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
         h, w, _ = img.shape
     
     with timer.env('Postprocess'):
+        save = cfg.rescore_bbox
+        cfg.rescore_bbox = True
         t = postprocess(dets_out, w, h, visualize_lincomb = args.display_lincomb,
                                         crop_masks        = args.crop,
-                                        score_threshold   = args.score_threshold,
-                                        maskiou_net       = maskiou_net)
-        torch.cuda.synchronize()
+                                        score_threshold   = args.score_threshold)
+        cfg.rescore_bbox = save
 
-    # FIXME reduce copy
     with timer.env('Copy'):
+        idx = t[1].argsort(0, descending=True)[:args.top_k]
+        
         if cfg.eval_mask_branch:
             # Masks are drawn on the GPU, so don't copy
-            masks = t[3]
-        classes, scores, boxes = [x for x in t[:3]]
-        if isinstance(scores, list):
-            box_scores = scores[0].cpu().numpy()
-            mask_scores = scores[1].cpu().numpy()
-            # Re-rank predictions by mask scores
-            _scores = mask_scores * box_scores
-            idx = np.argsort(-_scores)
-            scores = box_scores[idx]
-            classes = classes.cpu().numpy()[idx]
-            boxes = boxes.cpu().numpy()[idx]
-            masks = masks[idx]
-        else:
-            scores = scores.cpu().numpy()
-            classes = classes.cpu().numpy()
-            boxes = boxes.cpu().numpy()
-        scores = scores[:args.top_k]
-        classes = classes[:args.top_k]
-        boxes = boxes[:args.top_k]
-        masks = masks[:args.top_k]
+            masks = t[3][idx]
+        classes, scores, boxes = [x[idx].cpu().numpy() for x in t[:3]]
 
     num_dets_to_consider = min(args.top_k, classes.shape[0])
     for j in range(num_dets_to_consider):
@@ -233,17 +217,22 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
 
         text_w, text_h = cv2.getTextSize(fps_str, font_face, font_scale, font_thickness)[0]
 
-        #img_gpu[0:text_h+8, 0:text_w+8] *= 0.6 # 1 - Box alpha
+        img_gpu[0:text_h+8, 0:text_w+8] *= 0.6 # 1 - Box alpha
 
 
     # Then draw the stuff that needs to be done on the cpu
     # Note, make sure this is a uint8 tensor or opencv will not anti alias text for whatever reason
     img_numpy = (img_gpu * 255).byte().cpu().numpy()
     gray = cv2.cvtColor(img_numpy,cv2.COLOR_BGR2GRAY)
-    _, thresh = cv2.threshold(gray, 50, 255, cv2.THRESH_BINARY)
+    _,thresh = cv2.threshold(gray, 50 ,255,cv2.THRESH_BINARY)
     #img_numpy = thresh
-    contours, hierarchy = cv2.findContours(thresh,cv2.RETR_TREE,CV2.CHAIN_APPROX_SIMPLE)
-    cv2.drawContours(img_numpy, contours,0,(255,255,255), 5)
+    contours, hierarchy = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
+    contours = sorted(contours, key=cv2.contourArea,reverse=False) 
+    #cv2.drawContours(img_numpy,contours,0,(255,255,255),5)
+    for contour in contours:
+        if cv2.contourArea(contour)>=7009.0:
+            print(cv2.contourArea(contour))
+            cv2.drawContours(img_numpy,[contour],0,(255,255,255),5)
 
     if args.display_fps:
         # Draw the text on the CPU
@@ -283,9 +272,9 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
     
     return img_numpy
 
-def prep_benchmark(dets_out, h, w, maskiou_net=None):
+def prep_benchmark(dets_out, h, w):
     with timer.env('Postprocess'):
-        t = postprocess(dets_out, w, h, crop_masks=args.crop, score_threshold=args.score_threshold, maskiou_net=maskiou_net)
+        t = postprocess(dets_out, w, h, crop_masks=args.crop, score_threshold=args.score_threshold)
 
     with timer.env('Copy'):
         classes, scores, boxes, masks = [x[:args.top_k] for x in t]
@@ -405,7 +394,7 @@ def _bbox_iou(bbox1, bbox2, iscrowd=False):
         ret = jaccard(bbox1, bbox2, iscrowd)
     return ret.cpu()
 
-def prep_metrics(ap_data, dets, img, gt, gt_masks, h, w, num_crowd, image_id, detections:Detections=None, maskiou_net=None):
+def prep_metrics(ap_data, dets, img, gt, gt_masks, h, w, num_crowd, image_id, detections:Detections=None):
     """ Returns a list of APs for this image, with each element being for a class  """
     if not args.output_coco_json:
         with timer.env('Prepare gt'):
@@ -422,7 +411,7 @@ def prep_metrics(ap_data, dets, img, gt, gt_masks, h, w, num_crowd, image_id, de
                 crowd_classes, gt_classes = split(gt_classes)
 
     with timer.env('Postprocess'):
-        classes, scores, boxes, masks = postprocess(dets, w, h, crop_masks=args.crop, score_threshold=args.score_threshold, maskiou_net=maskiou_net)
+        classes, scores, boxes, masks = postprocess(dets, w, h, crop_masks=args.crop, score_threshold=args.score_threshold)
 
         if classes.size(0) == 0:
             return
@@ -464,9 +453,16 @@ def prep_metrics(ap_data, dets, img, gt, gt_masks, h, w, num_crowd, image_id, de
             crowd_mask_iou_cache = None
             crowd_bbox_iou_cache = None
 
+        box_indices = sorted(range(num_pred), key=lambda i: -box_scores[i])
+        mask_indices = sorted(box_indices, key=lambda i: -mask_scores[i])
+
         iou_types = [
-            ('box',  lambda i,j: bbox_iou_cache[i, j].item(), lambda i,j: crowd_bbox_iou_cache[i,j].item(), lambda i: box_scores[i]),
-            ('mask', lambda i,j: mask_iou_cache[i, j].item(), lambda i,j: crowd_mask_iou_cache[i,j].item(), lambda i: mask_scores[i])
+            ('box',  lambda i,j: bbox_iou_cache[i, j].item(),
+                     lambda i,j: crowd_bbox_iou_cache[i,j].item(),
+                     lambda i: box_scores[i], box_indices),
+            ('mask', lambda i,j: mask_iou_cache[i, j].item(),
+                     lambda i,j: crowd_mask_iou_cache[i,j].item(),
+                     lambda i: mask_scores[i], mask_indices)
         ]
 
     timer.start('Main loop')
@@ -477,13 +473,13 @@ def prep_metrics(ap_data, dets, img, gt, gt_masks, h, w, num_crowd, image_id, de
         for iouIdx in range(len(iou_thresholds)):
             iou_threshold = iou_thresholds[iouIdx]
 
-            for iou_type, iou_func, crowd_func, score_func in iou_types:
+            for iou_type, iou_func, crowd_func, score_func, indices in iou_types:
                 gt_used = [False] * len(gt_classes)
                 
                 ap_obj = ap_data[iou_type][iouIdx][_class]
                 ap_obj.add_gt_positives(num_gt_for_class)
 
-                for i in range(num_pred):
+                for i in indices:
                     if classes[i] != _class:
                         continue
                     
@@ -598,6 +594,7 @@ class APDataObject:
 def badhash(x):
     """
     Just a quick and dirty hash function for doing a deterministic shuffle based on image_id.
+
     Source:
     https://stackoverflow.com/questions/664014/what-integer-hash-function-are-good-that-accepts-an-integer-hash-key
     """
@@ -666,10 +663,11 @@ def evalvideo(net:Yolact, path:str, out_path:str=None):
     target_fps   = round(vid.get(cv2.CAP_PROP_FPS))
     frame_width  = round(vid.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_height = round(vid.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    num_frames   = round(vid.get(cv2.CAP_PROP_FRAME_COUNT))
     
     if is_webcam:
         num_frames = float('inf')
+    else:
+        num_frames = round(vid.get(cv2.CAP_PROP_FRAME_COUNT))
 
     net = CustomDataParallel(net).cuda()
     transform = torch.nn.DataParallel(FastBaseTransform()).cuda()
@@ -801,7 +799,7 @@ def evalvideo(net:Yolact, path:str, out_path:str=None):
             traceback.print_exc()
 
 
-    extract_frame = lambda x, i: (x[0][i] if x[1][i] is None else x[0][i].to(x[1][i]['box'].device), [x[1][i]])
+    extract_frame = lambda x, i: (x[0][i] if x[1][i]['detection'] is None else x[0][i].to(x[1][i]['detection']['box'].device), [x[1][i]])
 
     # Prime the network on the first frame because I do some thread unsafe things otherwise
     print('Initializing model... ', end='')
@@ -960,15 +958,13 @@ def evaluate(net:Yolact, dataset, train_mode=False):
 
             with timer.env('Network Extra'):
                 preds = net(batch)
-
-            maskiou_net = net.get_maskiou_net()
             # Perform the meat of the operation here depending on our mode.
             if args.display:
-                img_numpy = prep_display(preds, img, h, w, maskiou_net=maskiou_net)
+                img_numpy = prep_display(preds, img, h, w)
             elif args.benchmark:
-                prep_benchmark(preds, h, w, maskiou_net=maskiou_net)
+                prep_benchmark(preds, h, w)
             else:
-                prep_metrics(ap_data, preds, img, gt, gt_masks, h, w, num_crowd, dataset.ids[image_idx], detections, maskiou_net=maskiou_net)
+                prep_metrics(ap_data, preds, img, gt, gt_masks, h, w, num_crowd, dataset.ids[image_idx], detections)
             
             # First couple of images take longer because we're constructing the graph.
             # Since that's technically initialization, don't include those in the FPS calculations.
@@ -1118,5 +1114,6 @@ if __name__ == '__main__':
             net = net.cuda()
 
         evaluate(net, dataset)
+
 
 
