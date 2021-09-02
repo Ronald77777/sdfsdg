@@ -29,6 +29,34 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import cv2
 
+def biggestContour(contours):
+    biggest = np.array([])
+    max_area = 0
+    for i in contours:
+        area = cv2.contourArea(i)
+        if area > 5000:
+            peri = cv2.arcLength(i, True)
+            approx = cv2.approxPolyDP(i, 0.02 * peri, True)
+            #to identify if is a rectangle
+            if area > max_area and len(approx) == 4:
+                biggest = approx
+                max_area = area
+    return biggest,max_area
+
+def reorder(myPoints):
+ 
+    myPoints = myPoints.reshape((4, 2))
+    myPointsNew = np.zeros((4, 1, 2), dtype=np.int32)
+    add = myPoints.sum(1)
+ 
+    myPointsNew[0] = myPoints[np.argmin(add)]
+    myPointsNew[3] =myPoints[np.argmax(add)]
+    diff = np.diff(myPoints, axis=1)
+    myPointsNew[1] =myPoints[np.argmin(diff)]
+    myPointsNew[2] = myPoints[np.argmax(diff)]
+ 
+    return myPointsNew
+
 def str2bool(v):
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
         return True
@@ -207,6 +235,8 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
             masks_color_summand += masks_color_cumul.sum(dim=0)
 
         #img_gpu = img_gpu * inv_alph_masks.prod(dim=0) + masks_color_summand
+        img_gpu2 = img_gpu  
+        img_numpy2 = (img_gpu2 * 255).byte().cpu().numpy()
         img_gpu = masks_color_summand
     
     if args.display_fps:
@@ -223,16 +253,28 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
     # Then draw the stuff that needs to be done on the cpu
     # Note, make sure this is a uint8 tensor or opencv will not anti alias text for whatever reason
     img_numpy = (img_gpu * 255).byte().cpu().numpy()
+    
     gray = cv2.cvtColor(img_numpy,cv2.COLOR_BGR2GRAY)
     _,thresh = cv2.threshold(gray, 50 ,255,cv2.THRESH_BINARY)
     #img_numpy = thresh
     contours, hierarchy = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
     contours = sorted(contours, key=cv2.contourArea,reverse=False) 
     #cv2.drawContours(img_numpy,contours,0,(255,255,255),5)
+    print()
     for contour in contours:
-        if cv2.contourArea(contour)>=7009.0:
-            print(cv2.contourArea(contour))
+        if (cv2.contourArea(contour)/(img_numpy.shape[0]*img_numpy.shape[1]))>=0.011:
             cv2.drawContours(img_numpy,[contour],0,(255,255,255),5)
+    
+    biggest,max_area=biggestContour(contours)
+    if biggest.size != 0:
+        biggest=reorder(biggest)
+        cv2.drawContours(img_numpy,biggest,0,(0,255,0),5)
+        pts1 = np.float32(biggest)
+        pts2 = np.float32([[0, 0],[img_numpy.shape[1], 0], [0, img_numpy.shape[0]],[img_numpy.shape[1], img_numpy.shape[0]]])
+        matrix = cv2.getPerspectiveTransform(pts1, pts2)
+        imgWarpColored = cv2.warpPerspective(img_numpy2, matrix, (img_numpy.shape[1], img_numpy.shape[0]))
+        img_numpy = imgWarpColored
+
 
     if args.display_fps:
         # Draw the text on the CPU
@@ -1114,6 +1156,7 @@ if __name__ == '__main__':
             net = net.cuda()
 
         evaluate(net, dataset)
+
 
 
 
