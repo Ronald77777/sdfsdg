@@ -164,10 +164,14 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
     """
     Note: If undo_transform=False then im_h and im_w are allowed to be None.
     """
+    img_numpy2 = 255-np.copy((img * 255).byte().cpu().numpy()) 
+
     if undo_transform:
+        
         img_numpy = undo_image_transformation(img, w, h)
         img_gpu = torch.Tensor(img_numpy).cuda()
     else:
+        
         img_gpu = img / 255.0
         h, w, _ = img.shape
     
@@ -181,6 +185,7 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
 
     with timer.env('Copy'):
         idx = t[1].argsort(0, descending=True)[:args.top_k]
+        print(idx,'aqui ')
         
         if cfg.eval_mask_branch:
             # Masks are drawn on the GPU, so don't copy
@@ -235,8 +240,6 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
             masks_color_summand += masks_color_cumul.sum(dim=0)
 
         #img_gpu = img_gpu * inv_alph_masks.prod(dim=0) + masks_color_summand
-        img_gpu2 = img_gpu  
-        img_numpy2 = (img_gpu2 * 255).byte().cpu().numpy()
         img_gpu = masks_color_summand
     
     if args.display_fps:
@@ -266,23 +269,22 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
             cv2.drawContours(img_numpy,[contour],0,(255,255,255),5)
     
     biggest,max_area=biggestContour(contours)
-    if biggest.size != 0:
+
+    _classes = []
+    if args.display_text or args.display_bboxes:
+        _classes = [cfg.dataset.class_names[classes[j]] for j in reversed(range(num_dets_to_consider))]
+    
+
+    if (biggest.size != 0)and('book' in _classes):
         biggest=reorder(biggest)
         cv2.drawContours(img_numpy,biggest,0,(0,255,0),5)
         pts1 = np.float32(biggest)
         pts2 = np.float32([[0, 0],[img_numpy.shape[1], 0], [0, img_numpy.shape[0]],[img_numpy.shape[1], img_numpy.shape[0]]])
-        matrix = cv2.getPerspectiveTransform(pts1, pts2)
+        matrix = cv2.getPerspectiveTransform(pts1, pts2)      
         imgWarpColored = cv2.warpPerspective(img_numpy2, matrix, (img_numpy.shape[1], img_numpy.shape[0]))
         img_numpy = imgWarpColored
 
 
-    if args.display_fps:
-        # Draw the text on the CPU
-        text_pt = (4, text_h + 2)
-        text_color = [255, 255, 255]
-
-        cv2.putText(img_numpy, fps_str, text_pt, font_face, font_scale, text_color, font_thickness, cv2.LINE_AA)
-    
     if num_dets_to_consider == 0:
         return img_numpy
 
@@ -292,24 +294,13 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
             color = get_color(j)
             score = scores[j]
 
-            if args.display_bboxes:
-                cv2.rectangle(img_numpy, (x1, y1), (x2, y2), color, 1)
+
 
             if args.display_text:
                 _class = cfg.dataset.class_names[classes[j]]
-                text_str = '%s: %.2f' % (_class, score) if args.display_scores else _class
+                print(_class,'clase')
 
-                font_face = cv2.FONT_HERSHEY_DUPLEX
-                font_scale = 0.6
-                font_thickness = 1
-
-                text_w, text_h = cv2.getTextSize(text_str, font_face, font_scale, font_thickness)[0]
-
-                text_pt = (x1, y1 - 3)
-                text_color = [255, 255, 255]
-
-                cv2.rectangle(img_numpy, (x1, y1), (x1 + text_w, y1 - text_h - 4), color, -1)
-                cv2.putText(img_numpy, text_str, text_pt, font_face, font_scale, text_color, font_thickness, cv2.LINE_AA)
+                
             
     
     return img_numpy
