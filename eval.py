@@ -29,6 +29,14 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import cv2
 
+def if_in(cent,punto1,punto2):
+    for i in range(0,len(punto1)):
+        if (punto1[i][0]<=cent[0]<=punto2[i][0])and(punto1[i][1]<=cent[1]<=punto2[i][1]):
+            pass
+        else:
+            return False
+    return True
+
 def biggestContour(contours):
     biggest = np.array([])
     max_area = 0
@@ -256,24 +264,42 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
     # Then draw the stuff that needs to be done on the cpu
     # Note, make sure this is a uint8 tensor or opencv will not anti alias text for whatever reason
     img_numpy = (img_gpu * 255).byte().cpu().numpy()
-    
     gray = cv2.cvtColor(img_numpy,cv2.COLOR_BGR2GRAY)
     _,thresh = cv2.threshold(gray, 50 ,255,cv2.THRESH_BINARY)
-    #img_numpy = thresh
+
+    #moments = cv2.moments(thresh)
+    
+
     contours, hierarchy = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
     contours = sorted(contours, key=cv2.contourArea,reverse=False) 
-    #cv2.drawContours(img_numpy,contours,0,(255,255,255),5)
-    print()
+    
+#aqui-------------------------------------
+
     for contour in contours:
         if (cv2.contourArea(contour)/(img_numpy.shape[0]*img_numpy.shape[1]))>=0.011:
+            cv2.circle(img_numpy, tuple(np.mean(contour,axis=0,dtype=int)[0]), 1, (255,255,255), -1)
             cv2.drawContours(img_numpy,[contour],0,(255,255,255),5)
     
     biggest,max_area=biggestContour(contours)
 
+    print('if_in(cent,punto1,punto2)')
+#aqui-------------------------------------
     _classes = []
     if args.display_text or args.display_bboxes:
         _classes = [cfg.dataset.class_names[classes[j]] for j in reversed(range(num_dets_to_consider))]
-    
+    boxes_1= []
+    boxes_2= []
+    if args.display_text or args.display_bboxes:
+        for j in reversed(range(num_dets_to_consider)):
+            x1, y1, x2, y2 = boxes[j, :]
+            boxes_1.append([x1, y1])
+            boxes_2.append([x2, y2])
+            color = get_color(j)
+            score = scores[j]
+            if args.display_text:
+                _class = cfg.dataset.class_names[classes[j]]
+                print(_class,'clase')    
+
 
     if (biggest.size != 0)and('book' in _classes):
         biggest=reorder(biggest)
@@ -288,20 +314,15 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
     if num_dets_to_consider == 0:
         return img_numpy
 
-    if args.display_text or args.display_bboxes:
-        for j in reversed(range(num_dets_to_consider)):
-            x1, y1, x2, y2 = boxes[j, :]
-            color = get_color(j)
-            score = scores[j]
+
+            #if args.display_bboxes:
+                #cv2.rectangle(img_numpy, (x1, y1), (x2, y2), color, 1)
 
 
 
-            if args.display_text:
-                _class = cfg.dataset.class_names[classes[j]]
-                print(_class,'clase')
 
-                
-            
+    print(boxes_1)            
+    print(boxes_2)             
     
     return img_numpy
 
