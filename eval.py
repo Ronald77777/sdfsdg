@@ -193,12 +193,17 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
 
     with timer.env('Copy'):
         idx = t[1].argsort(0, descending=True)[:args.top_k]
-        print(idx,'aqui ')
+        idx = idx[np.where(t[0][idx].cpu().numpy()==73)]
+        #print(idx,'aqui ')
         
         if cfg.eval_mask_branch:
             # Masks are drawn on the GPU, so don't copy
             masks = t[3][idx]
         classes, scores, boxes = [x[idx].cpu().numpy() for x in t[:3]]
+#-------------------AQUI----------------------        
+        #print(t[3][idx[np.where(t[0][idx].cpu().numpy()==73)]])
+
+
 
     num_dets_to_consider = min(args.top_k, classes.shape[0])
     for j in range(num_dets_to_consider):
@@ -267,35 +272,16 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
     gray = cv2.cvtColor(img_numpy,cv2.COLOR_BGR2GRAY)
     _,thresh = cv2.threshold(gray, 50 ,255,cv2.THRESH_BINARY)
 
-    #moments = cv2.moments(thresh)
-    
-
     contours, hierarchy = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
     contours = sorted(contours, key=cv2.contourArea,reverse=False) 
     
 #aqui-------------------------------------
-
-    _classes = []
-    if args.display_text or args.display_bboxes:
-        _classes = [cfg.dataset.class_names[classes[j]] for j in reversed(range(num_dets_to_consider))]
-    boxes_1= []
-    boxes_2= []
-    if args.display_text or args.display_bboxes:
-        for j in reversed(range(num_dets_to_consider)):
-            if cfg.dataset.class_names[classes[j]]=='book':  
-                x1, y1, x2, y2 = boxes[j, :]
-                boxes_1.append([x1, y1])
-                boxes_2.append([x2, y2])
-                color = get_color(j)
-                score = scores[j]
-#aqui-------------------------------------
     contours2=[]
     for contour in contours:
         if (cv2.contourArea(contour)/(img_numpy.shape[0]*img_numpy.shape[1]))>=0.011:
-            cv2.circle(img_numpy, tuple(np.mean(contour,axis=0,dtype=int)[0]), 1, (255,255,255), -1)
-            if if_in(np.mean(contour,axis=0,dtype=int)[0],boxes_1,boxes_2):  
-                cv2.drawContours(img_numpy,[contour],0,(255,255,255),5)
-                contours2.append(contour)
+            cv2.circle(img_numpy, tuple(np.mean(contour,axis=0,dtype=int)[0]), 1, (255,255,255), -1) 
+            cv2.drawContours(img_numpy,[contour],0,(255,255,255),5)
+            contours2.append(contour)
     
     biggest,max_area=biggestContour(contours2)
 
@@ -305,7 +291,7 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
     
 
 
-    if (biggest.size != 0)and('book' in _classes):
+    if biggest.size != 0:
         biggest=reorder(biggest)
         cv2.drawContours(img_numpy,biggest,0,(0,255,0),5)
         pts1 = np.float32(biggest)
@@ -316,17 +302,7 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
 
 
     if num_dets_to_consider == 0:
-        return img_numpy
-
-
-            #if args.display_bboxes:
-                #cv2.rectangle(img_numpy, (x1, y1), (x2, y2), color, 1)
-
-
-
-
-    print(boxes_1)            
-    print(boxes_2)             
+        return img_numpy            
     
     return img_numpy
 
@@ -1172,5 +1148,6 @@ if __name__ == '__main__':
             net = net.cuda()
 
         evaluate(net, dataset)
+
 
 
