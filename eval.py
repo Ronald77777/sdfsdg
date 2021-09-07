@@ -275,15 +275,6 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
     
 #aqui-------------------------------------
 
-    for contour in contours:
-        if (cv2.contourArea(contour)/(img_numpy.shape[0]*img_numpy.shape[1]))>=0.011:
-            cv2.circle(img_numpy, tuple(np.mean(contour,axis=0,dtype=int)[0]), 1, (255,255,255), -1)
-            cv2.drawContours(img_numpy,[contour],0,(255,255,255),5)
-    
-    biggest,max_area=biggestContour(contours)
-
-    print('if_in(cent,punto1,punto2)')
-#aqui-------------------------------------
     _classes = []
     if args.display_text or args.display_bboxes:
         _classes = [cfg.dataset.class_names[classes[j]] for j in reversed(range(num_dets_to_consider))]
@@ -291,14 +282,27 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
     boxes_2= []
     if args.display_text or args.display_bboxes:
         for j in reversed(range(num_dets_to_consider)):
-            x1, y1, x2, y2 = boxes[j, :]
-            boxes_1.append([x1, y1])
-            boxes_2.append([x2, y2])
-            color = get_color(j)
-            score = scores[j]
-            if args.display_text:
-                _class = cfg.dataset.class_names[classes[j]]
-                print(_class,'clase')    
+            if cfg.dataset.class_names[classes[j]]=='book':  
+                x1, y1, x2, y2 = boxes[j, :]
+                boxes_1.append([x1, y1])
+                boxes_2.append([x2, y2])
+                color = get_color(j)
+                score = scores[j]
+#aqui-------------------------------------
+    contours2=[]
+    for contour in contours:
+        if (cv2.contourArea(contour)/(img_numpy.shape[0]*img_numpy.shape[1]))>=0.011:
+            cv2.circle(img_numpy, tuple(np.mean(contour,axis=0,dtype=int)[0]), 1, (255,255,255), -1)
+            if if_in(np.mean(contour,axis=0,dtype=int)[0],boxes_1,boxes_2):  
+                cv2.drawContours(img_numpy,[contour],0,(255,255,255),5)
+                contours2.append(contour)
+    
+    biggest,max_area=biggestContour(contours2)
+
+
+#aqui-------------------------------------
+
+    
 
 
     if (biggest.size != 0)and('book' in _classes):
@@ -1168,7 +1172,5 @@ if __name__ == '__main__':
             net = net.cuda()
 
         evaluate(net, dataset)
-
-
 
 
