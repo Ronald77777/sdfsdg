@@ -1,3 +1,8 @@
+import pytesseract
+import shutil
+import os
+import random
+
 from data import COCODetection, get_label_map, MEANS, COLORS
 from yolact import Yolact
 from utils.augmentations import BaseTransform, FastBaseTransform, Resize
@@ -298,6 +303,8 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
         pts2 = np.float32([[0, 0],[img_numpy.shape[1], 0], [0, img_numpy.shape[0]],[img_numpy.shape[1], img_numpy.shape[0]]])
         matrix = cv2.getPerspectiveTransform(pts1, pts2)      
         imgWarpColored = cv2.warpPerspective(img_numpy2, matrix, (img_numpy.shape[1], img_numpy.shape[0]))
+        extractedInformation = pytesseract.image_to_string(imgWarpColored)
+        print(extractedInformation)
         img_numpy = imgWarpColored
 
 
@@ -1148,6 +1155,7 @@ if __name__ == '__main__':
             net = net.cuda()
 
         evaluate(net, dataset)
+
 
 
 
