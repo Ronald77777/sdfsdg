@@ -299,10 +299,26 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
     if biggest.size != 0:
         biggest=reorder(biggest)
         cv2.drawContours(img_numpy,biggest,0,(0,255,0),5)
+        perimetro_r = cv2.arcLength(biggest,True)
+        perimetro_id = 2*(img_numpy.shape[1]+img_numpy.shape[0])
+        print(img_numpy.shape[1]*(perimetro_r/perimetro_id),img_numpy.shape[0]*(perimetro_r/perimetro_id),'areas')
+
+        w_r = int(img_numpy.shape[1]*(perimetro_r/perimetro_id))
+        h_r = int(img_numpy.shape[0]*(perimetro_r/perimetro_id))
+
+
         pts1 = np.float32(biggest)
-        pts2 = np.float32([[0, 0],[img_numpy.shape[1], 0], [0, img_numpy.shape[0]],[img_numpy.shape[1], img_numpy.shape[0]]])
-        matrix = cv2.getPerspectiveTransform(pts1, pts2)      
-        imgWarpColored = cv2.warpPerspective(img_numpy2, matrix, (img_numpy.shape[1], img_numpy.shape[0]), flags=cv2.INTER_CUBIC)
+
+        #pts2 = np.float32([[0, 0],[img_numpy.shape[1], 0], [0, img_numpy.shape[0]],[img_numpy.shape[1], img_numpy.shape[0]]])
+        
+        pts2 = np.float32([[0, 0],[w_r, 0], [0, h_r],[w_r, h_r]])
+        
+        matrix = cv2.getPerspectiveTransform(pts1, pts2)  
+
+        #imgWarpColored = cv2.warpPerspective(img_numpy2, matrix, (img_numpy.shape[1], img_numpy.shape[0]), flags=cv2.INTER_CUBIC)
+        
+        imgWarpColored = cv2.warpPerspective(img_numpy2, matrix, (w_r, h_r), flags=cv2.INTER_CUBIC)
+
         extractedInformation = pytesseract.image_to_string(imgWarpColored, lang='eng+spa')
         print(extractedInformation)
         img_numpy = imgWarpColored
