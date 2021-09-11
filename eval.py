@@ -303,7 +303,7 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
         pts2 = np.float32([[0, 0],[img_numpy.shape[1], 0], [0, img_numpy.shape[0]],[img_numpy.shape[1], img_numpy.shape[0]]])
         matrix = cv2.getPerspectiveTransform(pts1, pts2)      
         imgWarpColored = cv2.warpPerspective(img_numpy2, matrix, (img_numpy.shape[1], img_numpy.shape[0]), flags=cv2.INTER_CUBIC)
-        extractedInformation = pytesseract.image_to_string(imgWarpColored)
+        extractedInformation = pytesseract.image_to_string(imgWarpColored, lang='eng+spa')
         print(extractedInformation)
         img_numpy = imgWarpColored
 
